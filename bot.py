@@ -1,5 +1,6 @@
 import logging
 import os
+import json
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
@@ -12,25 +13,23 @@ from datetime import datetime
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ── Состояния диалога ──
 TASK, FROM_WHO, RESPONSIBLE, PRIORITY, DEADLINE, CONFIRM = range(6)
 
 TEAM = ["Макс", "Оксана", "Аня", "Оля", "Даша", "Макс Дранков"]
 PRIORITIES = ["🔴 Высокий", "🟡 Средний", "🟢 Низкий"]
 
-# ── Google Sheets ──
+
 def get_sheet():
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-    import json
     info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
     creds = Credentials.from_service_account_info(info, scopes=scopes)
     client = gspread.authorize(creds)
     sheet = client.open_by_key(os.environ["GOOGLE_SHEET_ID"]).sheet1
     return sheet
 
+
 def save_task(data: dict):
     sheet = get_sheet()
-    # Добавить заголовки если таблица пустая
     if sheet.row_count == 0 or sheet.cell(1, 1).value != "№":
         sheet.insert_row(
             ["№", "Дата", "Задача", "От кого", "Ответственный",
@@ -38,7 +37,7 @@ def save_task(data: dict):
             index=1
         )
     rows = sheet.get_all_values()
-    next_num = len(rows)  # уже учитывает заголовок
+    next_num = len(rows)
     sheet.append_row([
         next_num,
         datetime.now().strftime("%d.%m.%Y"),
@@ -51,7 +50,7 @@ def save_task(data: dict):
         "",
     ])
 
-# ── Хэндлеры ──
+
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Привет! Я бот команды продакшена.\n\n"
@@ -61,6 +60,7 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
     return TASK
 
+
 async def get_task(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["task"] = update.message.text
     await update.message.reply_text(
@@ -68,6 +68,7 @@ async def get_task(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         reply_markup=ReplyKeyboardRemove()
     )
     return FROM_WHO
+
 
 async def get_from_who(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["from_who"] = update.message.text
@@ -78,6 +79,7 @@ async def get_from_who(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
     return RESPONSIBLE
 
+
 async def get_responsible(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["responsible"] = update.message.text
     keyboard = [[p] for p in PRIORITIES]
@@ -86,6 +88,7 @@ async def get_responsible(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     )
     return PRIORITY
+
 
 async def get_priority(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["priority"] = update.message.text
@@ -97,10 +100,10 @@ async def get_priority(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
     return DEADLINE
 
+
 async def get_deadline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     deadline = update.message.text
     ctx.user_data["deadline"] = "" if deadline.lower() == "нет" else deadline
-
     d = ctx.user_data
     summary = (
         f"✅ *Проверь задачу:*\n\n"
@@ -119,22 +122,19 @@ async def get_deadline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
     return CONFIRM
 
+
 async def confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     if "Да" in text:
         try:
             save_task(ctx.user_data)
             await update.message.reply_text(
-                "🎉 Задача сохранена в таблицу!\n\n"
-                "Чтобы добавить новую — напиши /start",
+                "🎉 Задача сохранена в таблицу!\n\nЧтобы добавить новую — напиши /start",
                 reply_markup=ReplyKeyboardRemove()
             )
         except Exception as e:
             logger.error(f"Ошибка сохранения: {e}")
-            await update.message.reply_text(
-                "❌ Ошибка при сохранении. Проверь настройки Google Sheets.\n"
-                f"Детали: {e}"
-            )
+            await update.message.reply_text(f"❌ Ошибка при сохранении: {e}")
     else:
         await update.message.reply_text(
             "Хорошо, начнём заново. Напиши задачу:",
@@ -143,15 +143,15 @@ async def confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return TASK
     return ConversationHandler.END
 
+
 async def cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Отменено.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
-# ── Запуск ──
+
 def main():
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     app = Application.builder().token(token).build()
-
     conv = ConversationHandler(
         entry_points=[CommandHandler("start", start),
                       MessageHandler(filters.TEXT & ~filters.COMMAND, get_task)],
@@ -168,6 +168,7 @@ def main():
     app.add_handler(conv)
     logger.info("Бот запущен...")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
