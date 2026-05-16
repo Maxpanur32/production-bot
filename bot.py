@@ -17,6 +17,8 @@ TASK, FROM_WHO, RESPONSIBLE, PRIORITY, DEADLINE, CONFIRM = range(6)
 
 TEAM = ["Макс", "Оксана", "Аня", "Оля", "Даша", "Макс Дранков"]
 PRIORITIES = ["🔴 Высокий", "🟡 Средний", "🟢 Низкий"]
+DEPARTMENTS = ["Простота покупки", "Маркетинг", "Стиль и Дизайн", "Забота", "HR"]
+BACK = "⬅️ Назад"
 
 
 def get_sheet():
@@ -30,7 +32,6 @@ def get_sheet():
 
 def save_task(data: dict):
     sheet = get_sheet()
-    # Добавить заголовки если первая строка пустая
     first_row = sheet.row_values(1)
     if not first_row or first_row[0] != "№":
         sheet.insert_row(
@@ -39,7 +40,7 @@ def save_task(data: dict):
             index=1
         )
     rows = sheet.get_all_values()
-    next_num = len(rows)  # количество строк включая заголовок
+    next_num = len(rows)
     sheet.append_row([
         next_num,
         datetime.now().strftime("%d.%m.%Y"),
@@ -67,16 +68,24 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def get_task(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["task"] = update.message.text
+    keyboard = [[dept] for dept in DEPARTMENTS]
     await update.message.reply_text(
-        "📌 Понял! От какого отдела или человека пришла задача?",
-        reply_markup=ReplyKeyboardRemove()
+        "📌 Понял! От какого отдела пришла задача?",
+        reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     )
     return FROM_WHO
 
 
 async def get_from_who(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == BACK:
+        await update.message.reply_text(
+            "Напиши задачу заново:",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return TASK
+
     ctx.user_data["from_who"] = update.message.text
-    keyboard = [[name] for name in TEAM]
+    keyboard = [[name] for name in TEAM] + [[BACK]]
     await update.message.reply_text(
         "👤 Кто возьмёт задачу?",
         reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
@@ -85,8 +94,16 @@ async def get_from_who(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def get_responsible(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == BACK:
+        keyboard = [[dept] for dept in DEPARTMENTS]
+        await update.message.reply_text(
+            "📌 От какого отдела пришла задача?",
+            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        )
+        return FROM_WHO
+
     ctx.user_data["responsible"] = update.message.text
-    keyboard = [[p] for p in PRIORITIES]
+    keyboard = [[p] for p in PRIORITIES] + [[BACK]]
     await update.message.reply_text(
         "⚡ Приоритет задачи?",
         reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
@@ -95,17 +112,34 @@ async def get_responsible(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def get_priority(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == BACK:
+        keyboard = [[name] for name in TEAM] + [[BACK]]
+        await update.message.reply_text(
+            "👤 Кто возьмёт задачу?",
+            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        )
+        return RESPONSIBLE
+
     ctx.user_data["priority"] = update.message.text
+    keyboard = [[BACK]]
     await update.message.reply_text(
         "📅 Дедлайн? Напиши дату в формате *ДД.ММ.ГГГГ*\n"
         "Или напиши *нет* если дедлайна нет.",
         parse_mode="Markdown",
-        reply_markup=ReplyKeyboardRemove()
+        reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     )
     return DEADLINE
 
 
 async def get_deadline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == BACK:
+        keyboard = [[p] for p in PRIORITIES] + [[BACK]]
+        await update.message.reply_text(
+            "⚡ Приоритет задачи?",
+            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        )
+        return PRIORITY
+
     deadline = update.message.text
     ctx.user_data["deadline"] = "" if deadline.lower() == "нет" else deadline
     d = ctx.user_data
@@ -118,7 +152,7 @@ async def get_deadline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"📅 *Дедлайн:* {d['deadline'] or 'не указан'}\n\n"
         f"Всё верно?"
     )
-    keyboard = [["✅ Сохранить"], ["🔄 Начать заново"]]
+    keyboard = [["✅ Сохранить"], [BACK]]
     await update.message.reply_text(
         summary,
         parse_mode="Markdown",
@@ -129,6 +163,16 @@ async def get_deadline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
+
+    if text == BACK:
+        keyboard = [[BACK]]
+        await update.message.reply_text(
+            "📅 Дедлайн? Напиши дату в формате *ДД.ММ.ГГГГ*\n"
+            "Или напиши *нет* если дедлайна нет.",
+            parse_mode="Markdown",
+            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        )
+        return DEADLINE
 
     if text == "✅ Сохранить":
         try:
@@ -146,17 +190,8 @@ async def confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
         return ConversationHandler.END
 
-    elif text == "🔄 Начать заново":
-        ctx.user_data.clear()
-        await update.message.reply_text(
-            "Хорошо, начнём заново. Напиши задачу:",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return TASK
-
     else:
-        # Неожиданный ввод — повторяем кнопки
-        keyboard = [["✅ Сохранить"], ["🔄 Начать заново"]]
+        keyboard = [["✅ Сохранить"], [BACK]]
         await update.message.reply_text(
             "Пожалуйста, выбери один из вариантов:",
             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
