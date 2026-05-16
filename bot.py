@@ -30,14 +30,16 @@ def get_sheet():
 
 def save_task(data: dict):
     sheet = get_sheet()
-    if sheet.row_count == 0 or sheet.cell(1, 1).value != "№":
+    # Добавить заголовки если первая строка пустая
+    first_row = sheet.row_values(1)
+    if not first_row or first_row[0] != "№":
         sheet.insert_row(
             ["№", "Дата", "Задача", "От кого", "Ответственный",
              "Приоритет", "Статус", "Дедлайн", "Комментарий"],
             index=1
         )
     rows = sheet.get_all_values()
-    next_num = len(rows)
+    next_num = len(rows)  # количество строк включая заголовок
     sheet.append_row([
         next_num,
         datetime.now().strftime("%d.%m.%Y"),
@@ -52,11 +54,13 @@ def save_task(data: dict):
 
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.user_data.clear()
     await update.message.reply_text(
         "👋 Привет! Я бот команды продакшена.\n\n"
-        "Напиши задачу в свободной форме, и я помогу её оформить.\n\n"
+        "Напиши задачу в свободной форме.\n\n"
         "Например: *«Сделать баннер для новой коллекции диванов»*",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        reply_markup=ReplyKeyboardRemove()
     )
     return TASK
 
@@ -94,7 +98,7 @@ async def get_priority(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["priority"] = update.message.text
     await update.message.reply_text(
         "📅 Дедлайн? Напиши дату в формате *ДД.ММ.ГГГГ*\n"
-        "Или напиши *«нет»* если дедлайна нет.",
+        "Или напиши *нет* если дедлайна нет.",
         parse_mode="Markdown",
         reply_markup=ReplyKeyboardRemove()
     )
@@ -114,7 +118,7 @@ async def get_deadline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"📅 *Дедлайн:* {d['deadline'] or 'не указан'}\n\n"
         f"Всё верно?"
     )
-    keyboard = [["✅ Да, сохранить"], ["✏️ Начать заново"]]
+    keyboard = [["✅ Сохранить"], ["🔄 Начать заново"]]
     await update.message.reply_text(
         summary,
         parse_mode="Markdown",
@@ -124,27 +128,44 @@ async def get_deadline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    if "Да" in text:
+    text = update.message.text.strip()
+
+    if text == "✅ Сохранить":
         try:
             save_task(ctx.user_data)
+            ctx.user_data.clear()
             await update.message.reply_text(
                 "🎉 Задача сохранена в таблицу!\n\nЧтобы добавить новую — напиши /start",
                 reply_markup=ReplyKeyboardRemove()
             )
         except Exception as e:
             logger.error(f"Ошибка сохранения: {e}")
-            await update.message.reply_text(f"❌ Ошибка при сохранении: {e}")
-    else:
+            await update.message.reply_text(
+                f"❌ Ошибка при сохранении: {e}",
+                reply_markup=ReplyKeyboardRemove()
+            )
+        return ConversationHandler.END
+
+    elif text == "🔄 Начать заново":
+        ctx.user_data.clear()
         await update.message.reply_text(
             "Хорошо, начнём заново. Напиши задачу:",
             reply_markup=ReplyKeyboardRemove()
         )
         return TASK
-    return ConversationHandler.END
+
+    else:
+        # Неожиданный ввод — повторяем кнопки
+        keyboard = [["✅ Сохранить"], ["🔄 Начать заново"]]
+        await update.message.reply_text(
+            "Пожалуйста, выбери один из вариантов:",
+            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        )
+        return CONFIRM
 
 
 async def cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.user_data.clear()
     await update.message.reply_text("Отменено.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
@@ -153,8 +174,7 @@ def main():
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     app = Application.builder().token(token).build()
     conv = ConversationHandler(
-        entry_points=[CommandHandler("start", start),
-                      MessageHandler(filters.TEXT & ~filters.COMMAND, get_task)],
+        entry_points=[CommandHandler("start", start)],
         states={
             TASK:        [MessageHandler(filters.TEXT & ~filters.COMMAND, get_task)],
             FROM_WHO:    [MessageHandler(filters.TEXT & ~filters.COMMAND, get_from_who)],
