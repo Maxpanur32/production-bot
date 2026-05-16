@@ -21,7 +21,9 @@ PRIORITIES = ["🔴 Высокий", "🟡 Средний", "🟢 Низкий"]
 # ── Google Sheets ──
 def get_sheet():
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-    creds = Credentials.from_service_account_file("credentials.json", scopes=scopes)
+    import json
+info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+creds = Credentials.from_service_account_info(info, scopes=scopes)
     client = gspread.authorize(creds)
     sheet = client.open_by_key(os.environ["GOOGLE_SHEET_ID"]).sheet1
     return sheet
